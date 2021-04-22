@@ -21,16 +21,14 @@ func getStats(r *libradmin.RadminClient, subcmd string) (stats map[string]int, e
 	command := fmt.Sprintf("stats %s", subcmd)
 	stats = map[string]int{}
 	var val int
-	p := make([]byte, 65536)
 
-	r.Write([]byte(command))
-	for true {
-		n, _ := r.Read(p)
-		if int(r.LastReadChannel()) == libradmin.FR_CHANNEL_CMD_STATUS {
-			break
-		}
+	result, _, err := r.Execute([]byte(command))
+	if err != nil {
+		return stats, err
+	}
 
-		arr := SeparatorRegex.Split(string(p[:n-1]), -1)
+	for _, line := range result {
+		arr := SeparatorRegex.Split(string(line), -1)
 		if len(arr) != 2 {
 			continue
 		}

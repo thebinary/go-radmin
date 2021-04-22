@@ -4,12 +4,15 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"sync"
 )
 
 type RadminClient struct {
 	net.Conn
 	lastReadChannel uint32 // last channel the response was written to
 	lastReadStatus  int32  // status for the last reponse that was written to the STATUS channel
+	mu              sync.Mutex
+	lastmu          sync.Mutex
 }
 
 /*
@@ -64,6 +67,9 @@ func (r *RadminClient) LastReadStatus() (channel int32) {
 }
 
 func (r *RadminClient) channel_read(data *[]byte) (n int, err error) {
+	r.lastmu.Lock()
+	defer r.lastmu.Unlock()
+
 	if n, err = fr_channel_read(r.Conn, &r.lastReadChannel, data); err != nil {
 		return
 	}
@@ -107,5 +113,32 @@ func (r *RadminClient) Read(p []byte) (n int, err error) {
 		return n, err
 	}
 	copy(p, data)
+	return
+}
+
+func (r *RadminClient) Execute(command []byte) (result [][]byte, status int, err error) {
+	// concurrency safe
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var n int
+	result = [][]byte{}
+	p := make([]byte, 65536)
+
+	r.Write([]byte(command))
+	for true {
+		if n, err = r.Read(p); err != nil {
+			return
+		}
+		tmp := make([]byte, n)
+		copy(tmp, p[:n-1])
+
+		if int(r.LastReadChannel()) == FR_CHANNEL_CMD_STATUS {
+			status = int(r.lastReadStatus)
+			break
+		}
+		result = append(result, tmp)
+	}
+
 	return
 }
